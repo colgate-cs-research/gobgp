@@ -167,7 +167,7 @@ def make_gobgp_ctn(tag='gobgp', local_gobgp_path='', from_image='osrg/quagga'):
     c << 'RUN go get -u github.com/golang/dep/cmd/dep'
     c << 'RUN mkdir -p /go/src/github.com/osrg/'
     c << 'ADD gobgp /go/src/github.com/osrg/gobgp/'
-    c << 'RUN cd /go/src/github.com/osrg/gobgp && dep ensure && go install ./gobgpd ./gobgp'
+    c << 'RUN cd /go/src/github.com/osrg/gobgp && dep ensure && go install ./cmd/gobgpd ./cmd/gobgp'
 
     rindex = local_gobgp_path.rindex('gobgp')
     if rindex < 0:
@@ -226,16 +226,24 @@ class Bridge(object):
         return "{0}/{1}".format(self._ip_generator.next(),
                                 self.subnet.prefixlen)
 
-    def addif(self, ctn):
+    def addif(self, ctn, ip_addr=''):
         _name = ctn.next_if_name()
         self.ctns.append(ctn)
-        local("docker network connect {0} {1}".format(self.name, ctn.docker_name()))
+        ip = ''
+        if not ip_addr == '':
+            ip = '--ip {0}'.format(ip_addr)
+            if self.subnet.version == 6:
+                ip = '--ip6 {0}'.format(ip_addr)
+        local("docker network connect {0} {1} {2}".format(ip, self.name, ctn.docker_name()))
         i = [x for x in Client(timeout=60, version='auto').inspect_network(self.id)['Containers'].values() if x['Name'] == ctn.docker_name()][0]
         if self.subnet.version == 4:
+            eth = 'eth{0}'.format(len(ctn.ip_addrs))
             addr = i['IPv4Address']
+            ctn.ip_addrs.append((eth, addr, self.name))
         else:
+            eth = 'eth{0}'.format(len(ctn.ip6_addrs))
             addr = i['IPv6Address']
-        ctn.ip_addrs.append(('eth1', addr, self.name))
+            ctn.ip6_addrs.append((eth, addr, self.name))
 
     def delete(self):
         try_several_times(lambda: local("docker network rm {0}".format(self.name)))
@@ -544,7 +552,7 @@ class BGPContainer(Container):
         while True:
             res = self.local(cmd, capture=True)
             print colors.yellow(res)
-            if '1 packets received' in res and '0% packet loss':
+            if ('1 packets received' in res or '1 received' in res) and '0% packet loss' in res:
                 break
             time.sleep(interval)
             count += interval
