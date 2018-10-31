@@ -379,14 +379,21 @@ const (
 )
 
 type BMPPeerDownNotification struct {
+	LocalAddress    net.IP
 	Reason          uint8
 	BGPNotification *bgp.BGPMessage
 	Data            []byte
 }
 
-func NewBMPPeerDownNotification(p BMPPeerHeader, reason uint8, notification *bgp.BGPMessage, data []byte) *BMPMessage {
+func NewBMPPeerDownNotification(p BMPPeerHeader, lAddr string, reason uint8, notification *bgp.BGPMessage, data []byte) *BMPMessage {
 	b := &BMPPeerDownNotification{
 		Reason: reason,
+	}
+	addr := net.ParseIP(lAddr)
+	if addr.To4() != nil {
+		b.LocalAddress = addr.To4()
+	} else {
+		b.LocalAddress = addr.To16()
 	}
 	switch reason {
 	case BMP_PEER_DOWN_REASON_LOCAL_BGP_NOTIFICATION, BMP_PEER_DOWN_REASON_REMOTE_BGP_NOTIFICATION:
@@ -406,8 +413,13 @@ func NewBMPPeerDownNotification(p BMPPeerHeader, reason uint8, notification *bgp
 }
 
 func (body *BMPPeerDownNotification) ParseBody(msg *BMPMessage, data []byte) error {
-	body.Reason = data[0]
-	data = data[1:]
+    if msg.PeerHeader.Flags&BMP_PEER_FLAG_IPV6 != 0 {
+		body.LocalAddress = net.IP(data[:16]).To16()
+	} else {
+		body.LocalAddress = net.IP(data[12:16]).To4()
+	}
+	body.Reason = data[16]
+	data = data[17:]
 	if body.Reason == BMP_PEER_DOWN_REASON_LOCAL_BGP_NOTIFICATION || body.Reason == BMP_PEER_DOWN_REASON_REMOTE_BGP_NOTIFICATION {
 		notification, err := bgp.ParseBGPMessage(data)
 		if err != nil {
@@ -421,8 +433,13 @@ func (body *BMPPeerDownNotification) ParseBody(msg *BMPMessage, data []byte) err
 }
 
 func (body *BMPPeerDownNotification) Serialize() ([]byte, error) {
-	buf := make([]byte, 1)
-	buf[0] = body.Reason
+	buf := make([]byte, 17)
+	if body.LocalAddress.To4() != nil {
+		copy(buf[12:16], body.LocalAddress.To4())
+	} else {
+		copy(buf[:16], body.LocalAddress.To16())
+	}
+	buf[16] = body.Reason
 	switch body.Reason {
 	case BMP_PEER_DOWN_REASON_LOCAL_BGP_NOTIFICATION, BMP_PEER_DOWN_REASON_REMOTE_BGP_NOTIFICATION:
 		if body.BGPNotification != nil {
