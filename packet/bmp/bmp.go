@@ -21,6 +21,7 @@ import (
 	"github.com/osrg/gobgp/packet/bgp"
 	"math"
 	"net"
+    "time"
 )
 
 type BMPHeader struct {
@@ -81,15 +82,16 @@ type BMPPeerHeader struct {
 	Timestamp         float64
 }
 
-func NewBMPPeerHeader(t uint8, flags uint8, dist uint64, address string, as uint32, id string, stamp float64) *BMPPeerHeader {
+func NewBMPPeerHeader(t uint8, flags uint8, dist uint64, address string, as uint32, id string, nanostamp int64) *BMPPeerHeader {
 	h := &BMPPeerHeader{
 		PeerType:          t,
 		Flags:             flags,
 		PeerDistinguisher: dist,
 		PeerAS:            as,
 		PeerBGPID:         net.ParseIP(id).To4(),
-		Timestamp:         stamp,
 	}
+    microstamp := time.Duration(nanostamp) / time.Microsecond
+    h.Timestamp = float64(microstamp) / float64(time.Second / time.Microsecond)
 	if net.ParseIP(address).To4() != nil {
 		h.PeerAddress = net.ParseIP(address).To4()
 	} else {

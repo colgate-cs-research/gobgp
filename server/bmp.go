@@ -180,13 +180,13 @@ func (b *bmpClient) loop() {
 							for _, path := range pathList {
 								for _, u := range table.CreateUpdateMsgFromPaths([]*table.Path{path}) {
 									payload, _ := u.Serialize()
-									if err := write(bmpPeerRoute(bmp.BMP_PEER_TYPE_GLOBAL, msg.PostPolicy, 0, true, info, float64(msg.Timestamp.Unix()), payload)); err != nil {
+									if err := write(bmpPeerRoute(bmp.BMP_PEER_TYPE_GLOBAL, msg.PostPolicy, 0, true, info, msg.Timestamp.UnixNano(), payload)); err != nil {
 										return false
 									}
 								}
 							}
 						} else {
-							if err := write(bmpPeerRoute(bmp.BMP_PEER_TYPE_GLOBAL, msg.PostPolicy, 0, msg.FourBytesAs, info, float64(msg.Timestamp.Unix()), msg.Payload)); err != nil {
+							if err := write(bmpPeerRoute(bmp.BMP_PEER_TYPE_GLOBAL, msg.PostPolicy, 0, msg.FourBytesAs, info, msg.Timestamp.UnixNano(), msg.Payload)); err != nil {
 								return false
 							}
 						}
@@ -200,7 +200,7 @@ func (b *bmpClient) loop() {
 							u := table.CreateUpdateMsgFromPaths([]*table.Path{p})[0]
 							if payload, err := u.Serialize(); err != nil {
 								return false
-							} else if err = write(bmpPeerRoute(bmp.BMP_PEER_TYPE_LOCAL_RIB, false, 0, true, info, float64(time.Now().UnixNano())/float64(time.Second), payload)); err != nil {
+							} else if err = write(bmpPeerRoute(bmp.BMP_PEER_TYPE_LOCAL_RIB, false, 0, true, info, time.Now().UnixNano(), payload)); err != nil {
 								return false
 							}
 						}
@@ -220,7 +220,7 @@ func (b *bmpClient) loop() {
 							AS:      msg.PeerAS,
 							ID:      msg.PeerID,
 						}
-						if err := write(bmpPeerRouteMirroring(bmp.BMP_PEER_TYPE_GLOBAL, 0, info, msg.Timestamp.Unix(), msg.Message)); err != nil {
+						if err := write(bmpPeerRouteMirroring(bmp.BMP_PEER_TYPE_GLOBAL, 0, info, msg.Timestamp.UnixNano(), msg.Message)); err != nil {
 							return false
 						}
 					}
@@ -264,7 +264,7 @@ func bmpPeerUp(ev *WatchEventPeerState, t uint8, policy bool, pd uint64) *bmp.BM
 	if policy {
 		flags |= bmp.BMP_PEER_FLAG_POST_POLICY
 	}
-	ph := bmp.NewBMPPeerHeader(t, flags, pd, ev.PeerAddress.String(), ev.PeerAS, ev.PeerID.String(), float64(ev.Timestamp.Unix()))
+	ph := bmp.NewBMPPeerHeader(t, flags, pd, ev.PeerAddress.String(), ev.PeerAS, ev.PeerID.String(), ev.Timestamp.UnixNano())
 	return bmp.NewBMPPeerUpNotification(*ph, ev.LocalAddress.String(), ev.LocalPort, ev.PeerPort, ev.SentOpen, ev.RecvOpen)
 }
 
@@ -273,11 +273,11 @@ func bmpPeerDown(ev *WatchEventPeerState, t uint8, policy bool, pd uint64) *bmp.
 	if policy {
 		flags |= bmp.BMP_PEER_FLAG_POST_POLICY
 	}
-	ph := bmp.NewBMPPeerHeader(t, flags, pd, ev.PeerAddress.String(), ev.PeerAS, ev.PeerID.String(), float64(ev.Timestamp.Unix()))
+	ph := bmp.NewBMPPeerHeader(t, flags, pd, ev.PeerAddress.String(), ev.PeerAS, ev.PeerID.String(), ev.Timestamp.UnixNano())
 	return bmp.NewBMPPeerDownNotification(*ph, ev.LocalAddress.String(), uint8(ev.StateReason.PeerDownReason), ev.StateReason.BGPNotification, ev.StateReason.Data)
 }
 
-func bmpPeerRoute(t uint8, policy bool, pd uint64, fourBytesAs bool, peeri *table.PeerInfo, timestamp float64, payload []byte) *bmp.BMPMessage {
+func bmpPeerRoute(t uint8, policy bool, pd uint64, fourBytesAs bool, peeri *table.PeerInfo, timestamp int64, payload []byte) *bmp.BMPMessage {
 	var flags uint8 = 0
 	if policy {
 		flags |= bmp.BMP_PEER_FLAG_POST_POLICY
@@ -285,7 +285,7 @@ func bmpPeerRoute(t uint8, policy bool, pd uint64, fourBytesAs bool, peeri *tabl
 	if !fourBytesAs {
 		flags |= bmp.BMP_PEER_FLAG_TWO_AS
 	}
-	ph := bmp.NewBMPPeerHeader(t, flags, pd, peeri.Address.String(), peeri.AS, peeri.ID.String(), float64(timestamp))
+	ph := bmp.NewBMPPeerHeader(t, flags, pd, peeri.Address.String(), peeri.AS, peeri.ID.String(), timestamp)
 	m := bmp.NewBMPRouteMonitoring(*ph, nil)
 	body := m.Body.(*bmp.BMPRouteMonitoring)
 	body.BGPUpdatePayload = payload
@@ -294,7 +294,7 @@ func bmpPeerRoute(t uint8, policy bool, pd uint64, fourBytesAs bool, peeri *tabl
 
 func bmpPeerStats(peerType uint8, peerDist uint64, timestamp int64, neighConf *config.Neighbor) *bmp.BMPMessage {
 	var peerFlags uint8 = 0
-	ph := bmp.NewBMPPeerHeader(peerType, peerFlags, peerDist, neighConf.State.NeighborAddress, neighConf.State.PeerAs, neighConf.State.RemoteRouterId, float64(timestamp))
+	ph := bmp.NewBMPPeerHeader(peerType, peerFlags, peerDist, neighConf.State.NeighborAddress, neighConf.State.PeerAs, neighConf.State.RemoteRouterId, timestamp)
 	return bmp.NewBMPStatisticsReport(
 		*ph,
 		[]bmp.BMPStatsTLVInterface{
@@ -308,7 +308,7 @@ func bmpPeerStats(peerType uint8, peerDist uint64, timestamp int64, neighConf *c
 
 func bmpPeerRouteMirroring(peerType uint8, peerDist uint64, peerInfo *table.PeerInfo, timestamp int64, msg *bgp.BGPMessage) *bmp.BMPMessage {
 	var peerFlags uint8 = 0
-	ph := bmp.NewBMPPeerHeader(peerType, peerFlags, peerDist, peerInfo.Address.String(), peerInfo.AS, peerInfo.ID.String(), float64(timestamp))
+	ph := bmp.NewBMPPeerHeader(peerType, peerFlags, peerDist, peerInfo.Address.String(), peerInfo.AS, peerInfo.ID.String(), timestamp)
 	return bmp.NewBMPRouteMirroring(
 		*ph,
 		[]bmp.BMPRouteMirrTLVInterface{
